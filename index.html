@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAIT ANALYZER — Real-Time Gait Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466862/drawing_utils.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg: #0a0f14;
+            --surface: #0f181d;
+            --surface-light: #162230;
+            --border: #2a3a4a;
+            --text: #e8f0f5;
+            --text-dim: #6a7a8a;
+            --clinical-blue: #4a9eff;
+            --clinical-blue-glow: #4a9eff33;
+            --clinical-green: #34d399;
+            --clinical-green-glow: #34d39933;
+            --clinical-amber: #fbbf24;
+            --clinical-amber-glow: #fbbf2433;
+            --clinical-red: #f87171;
+            --clinical-red-glow: #f8717133;
+            --accent: #4a9eff;
+            --accent-glow: #4a9eff55;
+        }
+        
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .app-container {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            min-height: 100vh;
+        }
+        
+        @media (max-width: 1200px) {
+            .app-container {
+                grid-template-columns: 1fr;
+            }
+            .panel {
+                order: -1;
+            }
+        }
+        
+        /* Analysis Stage */
+        .stage {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+        }
+        
+        .stage-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .logo {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .logo-icon {
+            font-size: 26px;
+        }
+        
+        .logo span {
+            color: var(--clinical-blue);
+        }
+        
+        .session-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .info-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 18px;
+            color: var(--clinical-blue);
+        }
+        
+        .info-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+        
+        /* Video Area */
+        .video-area {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+            background: linear-gradient(180deg, var(--surface) 0%, #0a0f14 100%);
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 2px solid var(--border);
+        }
+        
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        
+        #poseCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            transform: scaleX(-1);
+        }
+        
+        .walking-indicator {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 50px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border: 1px solid var(--border);
+        }
+        
+        .walking-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--clinical-red);
+        }
+        
+        .walking-dot.active {
+            background: var(--clinical-green);
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 var(--clinical-green-glow); }
+            50% { box-shadow: 0 0 15px 5px var(--clinical-green-glow); }
+        }
+        
+        /* Side Overlay Metrics */
+        .side-metrics {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .side-metric {
+            padding: 12px 16px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 10px;
+            min-width: 120px;
+            border: 1px solid var(--border);
+        }
+        
+        .side-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--clinical-blue);
+        }
+        
+        .side-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+        
+        /* Loading Overlay */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--surface);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            z-index: 100;
+            border-radius: 16px;
+        }
+        
+        .loading-overlay.hidden {
+            display: none;
+        }
+        
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--border);
+            border-top-color: var(--clinical-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            font-size: 18px;
+            color: var(--text-dim);
+        }
+        
+        /* Instructions */
+        .instructions-banner {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 14px 28px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 50px;
+            font-size: 14px;
+            color: var(--text-dim);
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        
+        /* Control Panel */
+        .panel {
+            background: var(--surface);
+            padding: 30px;
+            overflow-y: auto;
+            max-height: 100vh;
+            border-left: 1px solid var(--border);
+        }
+        
+        .panel-section {
+            margin-bottom: 30px;
+        }
+        
+        .panel-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+        }
+        
+        /* Metrics Grid */
+        .metrics-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .metric-card {
+            padding: 16px;
+            background: var(--surface-light);
+            border-radius: 12px;
+            border-left: 4px solid var(--border);
+        }
+        
+        .metric-card.normal {
+            border-left-color: var(--clinical-green);
+        }
+        
+        .metric-card.warning {
+            border-left-color: var(--clinical-amber);
+        }
+        
+        .metric-card.alert {
+            border-left-color: var(--clinical-red);
+        }
+        
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .metric-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .metric-status {
+            font-size: 10px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .metric-status.normal {
+            background: var(--clinical-green-glow);
+            color: var(--clinical-green);
+        }
+        
+        .metric-status.warning {
+            background: var(--clinical-amber-glow);
+            color: var(--clinical-amber);
+        }
+        
+        .metric-status.alert {
+            background: var(--clinical-red-glow);
+            color: var(--clinical-red);
+        }
+        
+        .metric-value-row {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+        
+        .metric-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--clinical-blue);
+        }
+        
+        .metric-unit {
+            font-size: 14px;
+            color: var(--text-dim);
+        }
+        
+        .metric-range {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+        
+        .metric-bar {
+            height: 6px;
+            background: var(--surface);
+            border-radius: 3px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .metric-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--clinical-blue), var(--clinical-green));
+            border-radius: 3px;
+            transition: all 0.3s ease;
+        }
+        
+        /* Control Buttons */
+        .control-buttons {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .control-btn {
+            flex: 1;
+            padding: 14px;
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--clinical-blue);
+            box-shadow: 0 0 15px var(--clinical-blue-glow);
+        }
+        
+        .control-btn.active {
+            background: var(--clinical-blue);
+            color: white;
+            border-color: var(--clinical-blue);
+        }
+        
+        .control-btn.primary {
+            background: var(--clinical-blue);
+            color: white;
+            border-color: var(--clinical-blue);
+        }
+        
+        .control-btn.danger {
+            border-color: var(--clinical-red);
+        }
+        
+        .control-btn.danger:hover {
+            background: var(--clinical-red);
+            color: white;
+            border-color: var(--clinical-red);
+        }
+        
+        /* Session Stats */
+        .session-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .session-stat {
+            padding: 16px;
+            background: var(--surface-light);
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        
+        .session-value {
+            font-size: 24px;
+            font-weight: 800;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--clinical-blue);
+        }
+        
+        .session-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+        
+        /* Export Section */
+        .export-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .export-btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .export-btn:hover {
+            border-color: var(--clinical-blue);
+            box-shadow: 0 0 15px var(--clinical-blue-glow);
+        }
+        
+        /* Normal Range Guide */
+        .range-guide {
+            padding: 16px;
+            background: var(--surface-light);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        
+        .range-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .range-list {
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.8;
+        }
+        
+        .range-list strong {
+            color: var(--text);
+        }
+        
+        /* Hidden */
+        .hidden {
+            display: none !important;
+        }
+        
+        /* Step Detection Flash */
+        .step-flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(52, 211, 153, 0.2);
+            border-radius: 16px;
+            pointer-events: none;
+            opacity: 0;
+        }
+        
+        @keyframes stepFlash {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        
+        .step-flash.active {
+            animation: stepFlash 0.3s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="stage">
+            <div class="stage-header">
+                <div class="logo">
+                    <span class="logo-icon">🦶</span>
+                    <span>GAIT ANALYZER</span>
+                </div>
+                <div class="session-info">
+                    <div class="info-item">
+                        <div class="info-value" id="stepCount">0</div>
+                        <div class="info-label">Steps</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-value" id="sessionTime">00:00</div>
+                        <div class="info-label">Time</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-value" id="fpsValue">0</div>
+                        <div class="info-label">FPS</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="video-area">
+                <div class="video-container">
+                    <div class="loading-overlay" id="loadingOverlay">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Initializing Pose Detection...</div>
+                    </div>
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="poseCanvas"></canvas>
+                    <div class="step-flash" id="stepFlash"></div>
+                    
+                    <div class="walking-indicator">
+                        <div class="walking-dot" id="walkingDot"></div>
+                        <span id="walkingStatus">Waiting for motion...</span>
+                    </div>
+                    
+                    <div class="side-metrics">
+                        <div class="side-metric">
+                            <div class="side-value" id="sideStepLength">0.0</div>
+                            <div class="side-label">Step Length</div>
+                        </div>
+                        <div class="side-metric">
+                            <div class="side-value" id="sideCadence">0</div>
+                            <div class="side-label">Cadence</div>
+                        </div>
+                        <div class="side-metric">
+                            <div class="side-value" id="sideSymmetry">0%</div>
+                            <div class="side-label">Symmetry</div>
+                        </div>
+                    </div>
+                    
+                    <div class="instructions-banner">
+                        Walk toward the camera for 3+ steps • Keep your feet visible
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <!-- Control Buttons -->
+            <div class="control-buttons">
+                <button class="control-btn primary" id="startBtn" onclick="startSession()">
+                    ▶ Start
+                </button>
+                <button class="control-btn danger" id="stopBtn" onclick="stopSession()" style="display:none;">
+                    ⏹ Stop
+                </button>
+                <button class="control-btn" id="resetBtn" onclick="resetSession()">
+                    ⟲ Reset
+                </button>
+            </div>
+            
+            <!-- Session Stats -->
+            <div class="panel-section">
+                <div class="panel-title">📊 Session Stats</div>
+                <div class="session-stats">
+                    <div class="session-stat">
+                        <div class="session-value" id="avgStepLength">0.0</div>
+                        <div class="session-label">Avg Step Len.</div>
+                    </div>
+                    <div class="session-stat">
+                        <div class="session-value" id="avgCadence">0</div>
+                        <div class="session-label">Avg Cadence</div>
+                    </div>
+                    <div class="session-stat">
+                        <div class="session-value" id="consistencyScore">0%</div>
+                        <div class="session-label">Consistency</div>
+                    </div>
+                    <div class="session-stat">
+                        <div class="session-value" id="totalSteps">0</div>
+                        <div class="session-label">Total Steps</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Main Metrics -->
+            <div class="panel-section">
+                <div class="panel-title">📈 Real-Time Metrics</div>
+                <div class="metrics-grid">
+                    <div class="metric-card normal" id="stepLengthCard">
+                        <div class="metric-header">
+                            <div class="metric-name">Step Length</div>
+                            <div class="metric-status normal" id="stepLengthStatus">Normal</div>
+                        </div>
+                        <div class="metric-value-row">
+                            <div class="metric-value" id="stepLengthValue">0.0</div>
+                            <div class="metric-unit">m</div>
+                        </div>
+                        <div class="metric-range">Normal: 0.4 - 0.8 m</div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill" id="stepLengthBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card normal" id="stepTimeCard">
+                        <div class="metric-header">
+                            <div class="metric-name">Step Time</div>
+                            <div class="metric-status normal" id="stepTimeStatus">Normal</div>
+                        </div>
+                        <div class="metric-value-row">
+                            <div class="metric-value" id="stepTimeValue">0.0</div>
+                            <div class="metric-unit">sec</div>
+                        </div>
+                        <div class="metric-range">Normal: 0.5 - 0.7 sec</div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill" id="stepTimeBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card normal" id="symmetryCard">
+                        <div class="metric-header">
+                            <div class="metric-name">Step Symmetry</div>
+                            <div class="metric-status normal" id="symmetryStatus">Normal</div>
+                        </div>
+                        <div class="metric-value-row">
+                            <div class="metric-value" id="symmetryValue">0</div>
+                            <div class="metric-unit">%</div>
+                        </div>
+                        <div class="metric-range">Normal: > 95%</div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill" id="symmetryBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card normal" id="cadenceCard">
+                        <div class="metric-header">
+                            <div class="metric-name">Cadence</div>
+                            <div class="metric-status normal" id="cadenceStatus">Normal</div>
+                        </div>
+                        <div class="metric-value-row">
+                            <div class="metric-value" id="cadenceValue">0</div>
+                            <div class="metric-unit">steps/min</div>
+                        </div>
+                        <div class="metric-range">Normal: 100 - 130 steps/min</div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill" id="cadenceBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card normal" id="strideCard">
+                        <div class="metric-header">
+                            <div class="metric-name">Stride Length</div>
+                            <div class="metric-status normal" id="strideStatus">Normal</div>
+                        </div>
+                        <div class="metric-value-row">
+                            <div class="metric-value" id="strideValue">0.0</div>
+                            <div class="metric-unit">m</div>
+                        </div>
+                        <div class="metric-range">Normal: 1.3 - 1.5 m</div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill" id="strideBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card normal" id="clearanceCard">
+                        <div class="metric-header">
+                            <div class="metric-name">Foot Clearance</div>
+                            <div class="metric-status normal" id="clearanceStatus">Normal</div>
+                        </div>
+                        <div class="metric-value-row">
+                            <div class="metric-value" id="clearanceValue">0.0</div>
+                            <div class="metric-unit">cm</div>
+                        </div>
+                        <div class="metric-range">Normal: 10 - 15 cm</div>
+                        <div class="metric-bar">
+                            <div class="metric-bar-fill" id="clearanceBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Export Section -->
+            <div class="panel-section">
+                <div class="panel-title">💾 Export Session</div>
+                <div class="export-section">
+                    <button class="export-btn" onclick="exportJSON()">
+                        📥 Export as JSON
+                    </button>
+                    <button class="export-btn" onclick="printReport()">
+                        🖨️ Print Report
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Normal Range Guide -->
+            <div class="range-guide">
+                <div class="range-title">📋 Normal Ranges</div>
+                <div class="range-list">
+                    <div><strong>Step Length:</strong> 0.4-0.8 m</div>
+                    <div><strong>Step Time:</strong> 0.5-0.7 sec</div>
+                    <div><strong>Cadence:</strong> 100-130 s/min</div>
+                    <div><strong>Stride Length:</strong> 1.3-1.5 m</div>
+                    <div><strong>Symmetry:</strong> >95%</div>
+                    <div><strong>Foot Clear:</strong> 10-15 cm</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== CONSTANTS ====================
+        const NORMAL_RANGES = {
+            stepLength: { min: 0.4, max: 0.8 },
+            stepTime: { min: 0.5, max: 0.7 },
+            cadence: { min: 100, max: 130 },
+            strideLength: { min: 1.3, max: 1.5 },
+            symmetry: { min: 95, max: 100 },
+            footClearance: { min: 10, max: 15 }
+        };
+
+        // ==================== STATE ====================
+        let sessionActive = false;
+        let sessionStartTime = 0;
+        let sessionData = {
+            steps: [],
+            metrics: [],
+            timestamps: []
+        };
+
+        let poseDetectionRunning = false;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let fpsCounter = 0;
+
+        let previousLeftAnkle = null;
+        let previousRightAnkle = null;
+        let lastStepTime = 0;
+        let stepSide = null;
+        let isWalking = false;
+
+        let stepLengths = [];
+        let stepTimes = [];
+        let stepSymmetries = [];
+        let cadenceValues = [];
+        let strideLengths = [];
+        let footClearances = [];
+
+        // Pose detection
+        const pose = new Pose({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`
+        });
+
+        // ==================== INITIALIZATION ====================
+        async function initializePoseDetection() {
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                enableSegmentation: false,
+                smoothSegmentation: false,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            pose.onResults(onPoseResults);
+
+            const videoElement = document.getElementById('webcam');
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await pose.send({ image: videoElement });
+                    updateFPS();
+                }
+            });
+
+            camera.start();
+            poseDetectionRunning = true;
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        // ==================== POSE DETECTION ====================
+        function onPoseResults(results) {
+            const canvas = document.getElementById('poseCanvas');
+            const canvasCtx = canvas.getContext('2d');
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            // Clear canvas
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (results.poseLandmarks && results.poseLandmarks.length > 0) {
+                drawPoseOverlay(canvasCtx, results.poseLandmarks, canvas);
+
+                if (sessionActive) {
+                    updateGaitMetrics(results.poseLandmarks);
+                }
+            }
+        }
+
+        function drawPoseOverlay(ctx, landmarks, canvas) {
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Draw connections
+            const connections = [
+                [11, 13], [13, 15], [12, 14], [14, 16],  // Arms
+                [11, 23], [23, 25], [25, 27],             // Left leg
+                [12, 24], [24, 26], [26, 28]              // Right leg
+            ];
+
+            ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
+            ctx.lineWidth = 2;
+
+            connections.forEach(conn => {
+                const start = landmarks[conn[0]];
+                const end = landmarks[conn[1]];
+                if (start && end && start.visibility > 0.5 && end.visibility > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(start.x * width, start.y * height);
+                    ctx.lineTo(end.x * width, end.y * height);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw keypoints
+            ctx.fillStyle = 'rgba(52, 211, 153, 0.8)';
+            landmarks.forEach(landmark => {
+                if (landmark.visibility > 0.5) {
+                    ctx.beginPath();
+                    ctx.arc(landmark.x * width, landmark.y * height, 4, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            });
+
+            // Highlight ankles
+            ctx.fillStyle = 'rgba(255, 187, 0, 1)';
+            if (landmarks[27] && landmarks[27].visibility > 0.5) {
+                ctx.beginPath();
+                ctx.arc(landmarks[27].x * width, landmarks[27].y * height, 6, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            if (landmarks[28] && landmarks[28].visibility > 0.5) {
+                ctx.beginPath();
+                ctx.arc(landmarks[28].x * width, landmarks[28].y * height, 6, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+
+        // ==================== GAIT ANALYSIS ====================
+        function updateGaitMetrics(landmarks) {
+            const leftAnkle = landmarks[27];
+            const rightAnkle = landmarks[28];
+            const leftHip = landmarks[23];
+            const rightHip = landmarks[24];
+            const leftKnee = landmarks[25];
+            const rightKnee = landmarks[26];
+
+            if (!leftAnkle || !rightAnkle || leftAnkle.visibility < 0.5 || rightAnkle.visibility < 0.5) {
+                return;
+            }
+
+            const currentTime = Date.now() / 1000;
+
+            // Step Detection - using ankle position crossing
+            const ankleDistance = Math.sqrt(
+                Math.pow(leftAnkle.x - rightAnkle.x, 2) +
+                Math.pow(leftAnkle.y - rightAnkle.y, 2)
+            );
+
+            // Detect step when ankle crosses certain y-threshold
+            if (previousLeftAnkle && previousRightAnkle) {
+                const leftMoved = Math.abs(leftAnkle.y - previousLeftAnkle.y) > 0.03;
+                const rightMoved = Math.abs(rightAnkle.y - previousRightAnkle.y) > 0.03;
+
+                if (leftMoved && !rightMoved && stepSide !== 'left') {
+                    recordStep('left', currentTime, leftAnkle, rightAnkle, leftHip, rightHip);
+                    stepSide = 'left';
+                } else if (rightMoved && !leftMoved && stepSide !== 'right') {
+                    recordStep('right', currentTime, leftAnkle, rightAnkle, leftHip, rightHip);
+                    stepSide = 'right';
+                }
+            }
+
+            previousLeftAnkle = { ...leftAnkle };
+            previousRightAnkle = { ...rightAnkle };
+
+            // Calculate metrics
+            calculateStepLength(leftAnkle, rightAnkle);
+            calculateFootClearance(leftKnee, leftAnkle, rightKnee, rightAnkle);
+            calculateHeelStrikeAngle(leftAnkle, rightAnkle);
+
+            // Update walking status
+            const velocityThreshold = 0.02;
+            const currentVelocity = Math.abs(leftAnkle.y - (previousLeftAnkle?.y || 0)) +
+                                   Math.abs(rightAnkle.y - (previousRightAnkle?.y || 0));
+
+            isWalking = currentVelocity > velocityThreshold;
+            updateWalkingIndicator();
+        }
+
+        function recordStep(side, time, leftAnkle, rightAnkle, leftHip, rightHip) {
+            if (lastStepTime === 0) {
+                lastStepTime = time;
+                return;
+            }
+
+            const stepTime = time - lastStepTime;
+            const stepLength = Math.sqrt(
+                Math.pow(leftAnkle.x - rightAnkle.x, 2) +
+                Math.pow(leftAnkle.y - rightAnkle.y, 2)
+            ) * 1.5; // Rough calibration
+
+            stepLengths.push(stepLength);
+            stepTimes.push(stepTime);
+
+            // Calculate cadence
+            const cadence = 60 / stepTime;
+            cadenceValues.push(cadence);
+
+            lastStepTime = time;
+
+            // Flash effect
+            triggerStepFlash();
+
+            // Update display
+            document.getElementById('stepCount').textContent = (parseInt(document.getElementById('stepCount').textContent) + 1);
+        }
+
+        function calculateStepLength(leftAnkle, rightAnkle) {
+            const distance = Math.sqrt(
+                Math.pow(leftAnkle.x - rightAnkle.x, 2) +
+                Math.pow(leftAnkle.y - rightAnkle.y, 2)
+            ) * 1.5; // Calibration factor
+
+            updateMetricCard('stepLength', distance.toFixed(2), 'm', NORMAL_RANGES.stepLength);
+            document.getElementById('sideStepLength').textContent = distance.toFixed(2);
+        }
+
+        function calculateFootClearance(leftKnee, leftAnkle, rightKnee, rightAnkle) {
+            let maxClearance = 0;
+
+            if (leftKnee && leftAnkle && leftKnee.visibility > 0.5) {
+                const leftClear = Math.abs(leftKnee.y - leftAnkle.y) * 100; // Convert to cm
+                maxClearance = Math.max(maxClearance, leftClear);
+            }
+
+            if (rightKnee && rightAnkle && rightKnee.visibility > 0.5) {
+                const rightClear = Math.abs(rightKnee.y - rightAnkle.y) * 100;
+                maxClearance = Math.max(maxClearance, rightClear);
+            }
+
+            if (maxClearance > 0) {
+                footClearances.push(maxClearance);
+                updateMetricCard('clearance', maxClearance.toFixed(1), 'cm', NORMAL_RANGES.footClearance);
+            }
+        }
+
+        function calculateHeelStrikeAngle(leftAnkle, rightAnkle) {
+            // Simplified angle calculation
+            const angle = Math.atan2(rightAnkle.y - leftAnkle.y, rightAnkle.x - leftAnkle.x) * (180 / Math.PI);
+            return Math.abs(angle);
+        }
+
+        function updateWalkingIndicator() {
+            const dot = document.getElementById('walkingDot');
+            const status = document.getElementById('walkingStatus');
+
+            if (isWalking) {
+                dot.classList.add('active');
+                status.textContent = 'Walking detected';
+            } else {
+                dot.classList.remove('active');
+                status.textContent = 'Waiting for motion...';
+            }
+        }
+
+        function triggerStepFlash() {
+            const flash = document.getElementById('stepFlash');
+            flash.classList.remove('active');
+            void flash.offsetWidth; // Trigger reflow
+            flash.classList.add('active');
+        }
+
+        // ==================== METRIC UPDATES ====================
+        function updateMetricCard(metricType, value, unit, range) {
+            let cardId, valueId, statusId, barId;
+
+            switch (metricType) {
+                case 'stepLength':
+                    cardId = 'stepLengthCard';
+                    valueId = 'stepLengthValue';
+                    statusId = 'stepLengthStatus';
+                    barId = 'stepLengthBar';
+                    break;
+                case 'stepTime':
+                    cardId = 'stepTimeCard';
+                    valueId = 'stepTimeValue';
+                    statusId = 'stepTimeStatus';
+                    barId = 'stepTimeBar';
+                    break;
+                case 'symmetry':
+                    cardId = 'symmetryCard';
+                    valueId = 'symmetryValue';
+                    statusId = 'symmetryStatus';
+                    barId = 'symmetryBar';
+                    break;
+                case 'cadence':
+                    cardId = 'cadenceCard';
+                    valueId = 'cadenceValue';
+                    statusId = 'cadenceStatus';
+                    barId = 'cadenceBar';
+                    break;
+                case 'stride':
+                    cardId = 'strideCard';
+                    valueId = 'strideValue';
+                    statusId = 'strideStatus';
+                    barId = 'strideBar';
+                    break;
+                case 'clearance':
+                    cardId = 'clearanceCard';
+                    valueId = 'clearanceValue';
+                    statusId = 'clearanceStatus';
+                    barId = 'clearanceBar';
+                    break;
+            }
+
+            const numValue = parseFloat(value);
+            const card = document.getElementById(cardId);
+            const status = document.getElementById(statusId);
+            const bar = document.getElementById(barId);
+
+            document.getElementById(valueId).textContent = value;
+
+            // Determine status
+            let statusClass = 'normal';
+            let statusText = 'Normal';
+            let barFill = 50;
+
+            if (numValue < range.min) {
+                statusClass = 'alert';
+                statusText = 'Low';
+                barFill = (numValue / range.min) * 50;
+            } else if (numValue > range.max) {
+                statusClass = 'warning';
+                statusText = 'High';
+                barFill = 50 + ((numValue - range.max) / (range.max * 0.5)) * 50;
+            } else {
+                barFill = ((numValue - range.min) / (range.max - range.min)) * 100;
+            }
+
+            barFill = Math.min(100, Math.max(0, barFill));
+
+            card.className = `metric-card ${statusClass}`;
+            status.className = `metric-status ${statusClass}`;
+            status.textContent = statusText;
+            bar.style.width = barFill + '%';
+        }
+
+        // ==================== SESSION MANAGEMENT ====================
+        function startSession() {
+            sessionActive = true;
+            sessionStartTime = Date.now();
+            sessionData = { steps: [], metrics: [], timestamps: [] };
+            stepLengths = [];
+            stepTimes = [];
+            cadenceValues = [];
+            footClearances = [];
+
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'flex';
+
+            updateSessionTimer();
+        }
+
+        function stopSession() {
+            sessionActive = false;
+            document.getElementById('startBtn').style.display = 'flex';
+            document.getElementById('stopBtn').style.display = 'none';
+
+            calculateSessionStats();
+        }
+
+        function resetSession() {
+            sessionActive = false;
+            sessionData = { steps: [], metrics: [], timestamps: [] };
+            stepLengths = [];
+            stepTimes = [];
+            cadenceValues = [];
+            footClearances = [];
+
+            document.getElementById('stepCount').textContent = '0';
+            document.getElementById('sessionTime').textContent = '00:00';
+            document.getElementById('startBtn').style.display = 'flex';
+            document.getElementById('stopBtn').style.display = 'none';
+
+            // Reset all metric displays
+            ['stepLength', 'stepTime', 'symmetry', 'cadence', 'stride', 'clearance'].forEach(metric => {
+                if (metric === 'stepLength') updateMetricCard('stepLength', '0.0', 'm', NORMAL_RANGES.stepLength);
+                else if (metric === 'stepTime') updateMetricCard('stepTime', '0.0', 'sec', NORMAL_RANGES.stepTime);
+                else if (metric === 'symmetry') updateMetricCard('symmetry', '0', '%', NORMAL_RANGES.symmetry);
+                else if (metric === 'cadence') updateMetricCard('cadence', '0', 'steps/min', NORMAL_RANGES.cadence);
+                else if (metric === 'stride') updateMetricCard('stride', '0.0', 'm', NORMAL_RANGES.strideLength);
+                else if (metric === 'clearance') updateMetricCard('clearance', '0.0', 'cm', NORMAL_RANGES.footClearance);
+            });
+
+            document.getElementById('avgStepLength').textContent = '0.0';
+            document.getElementById('avgCadence').textContent = '0';
+            document.getElementById('consistencyScore').textContent = '0%';
+            document.getElementById('totalSteps').textContent = '0';
+        }
+
+        function updateSessionTimer() {
+            if (!sessionActive) return;
+
+            const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+
+            document.getElementById('sessionTime').textContent = 
+                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+            setTimeout(updateSessionTimer, 100);
+        }
+
+        function calculateSessionStats() {
+            const avgStepLength = stepLengths.length > 0 ? 
+                (stepLengths.reduce((a, b) => a + b) / stepLengths.length).toFixed(2) : '0.0';
+            
+            const avgCadence = cadenceValues.length > 0 ? 
+                Math.round(cadenceValues.reduce((a, b) => a + b) / cadenceValues.length) : '0';
+            
+            const avgStepTime = stepTimes.length > 0 ? 
+                (stepTimes.reduce((a, b) => a + b) / stepTimes.length).toFixed(2) : '0.0';
+            
+            // Consistency score (standard deviation inverse)
+            let consistency = 100;
+            if (stepLengths.length > 1) {
+                const mean = stepLengths.reduce((a, b) => a + b) / stepLengths.length;
+                const variance = stepLengths.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / stepLengths.length;
+                const stdDev = Math.sqrt(variance);
+                consistency = Math.max(0, 100 - (stdDev * 50));
+            }
+
+            // Symmetry
+            let symmetry = 100;
+            if (stepLengths.length > 1) {
+                const leftLengths = stepLengths.filter((_, i) => i % 2 === 0);
+                const rightLengths = stepLengths.filter((_, i) => i % 2 === 1);
+                if (leftLengths.length > 0 && rightLengths.length > 0) {
+                    const avgLeft = leftLengths.reduce((a, b) => a + b) / leftLengths.length;
+                    const avgRight = rightLengths.reduce((a, b) => a + b) / rightLengths.length;
+                    symmetry = Math.max(0, 100 - Math.abs(avgLeft - avgRight) * 100);
+                }
+            }
+
+            document.getElementById('avgStepLength').textContent = avgStepLength;
+            document.getElementById('avgCadence').textContent = avgCadence;
+            document.getElementById('consistencyScore').textContent = Math.round(consistency) + '%';
+            document.getElementById('totalSteps').textContent = stepLengths.length;
+
+            updateMetricCard('symmetry', Math.round(symmetry).toString(), '%', NORMAL_RANGES.symmetry);
+            updateMetricCard('stride', (parseFloat(avgStepLength) * 2).toFixed(2), 'm', NORMAL_RANGES.strideLength);
+        }
+
+        // ==================== EXPORT & REPORTING ====================
+        function exportJSON() {
+            const report = {
+                timestamp: new Date().toISOString(),
+                session: {
+                    duration: document.getElementById('sessionTime').textContent,
+                    steps: document.getElementById('stepCount').textContent,
+                    startTime: new Date(sessionStartTime).toISOString()
+                },
+                metrics: {
+                    avgStepLength: document.getElementById('avgStepLength').textContent,
+                    avgCadence: document.getElementById('avgCadence').textContent,
+                    consistency: document.getElementById('consistencyScore').textContent,
+                    symmetry: document.getElementById('symmetryValue').textContent + '%'
+                },
+                rawData: {
+                    stepLengths: stepLengths,
+                    stepTimes: stepTimes,
+                    cadenceValues: cadenceValues,
+                    footClearances: footClearances
+                }
+            };
+
+            const dataStr = JSON.stringify(report, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `gait_analysis_${Date.now()}.json`;
+            link.click();
+        }
+
+        function printReport() {
+            const printContent = `
+                <html>
+                    <head>
+                        <title>GAIT ANALYZER Report</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; margin: 20px; }
+                            h1 { color: #4a9eff; }
+                            .metric { margin: 15px 0; padding: 10px; border-left: 4px solid #4a9eff; }
+                            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                            th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+                            th { background-color: #f2f2f2; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>🦶 GAIT ANALYZER — Session Report</h1>
+                        <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+                        
+                        <h2>Session Summary</h2>
+                        <div class="metric">
+                            <strong>Duration:</strong> ${document.getElementById('sessionTime').textContent}
+                        </div>
+                        <div class="metric">
+                            <strong>Total Steps:</strong> ${document.getElementById('stepCount').textContent}
+                        </div>
+                        
+                        <h2>Metrics</h2>
+                        <table>
+                            <tr>
+                                <th>Metric</th>
+                                <th>Value</th>
+                                <th>Status</th>
+                            </tr>
+                            <tr>
+                                <td>Average Step Length</td>
+                                <td>${document.getElementById('avgStepLength').textContent} m</td>
+                                <td>Normal</td>
+                            </tr>
+                            <tr>
+                                <td>Average Cadence</td>
+                                <td>${document.getElementById('avgCadence').textContent} steps/min</td>
+                                <td>Normal</td>
+                            </tr>
+                            <tr>
+                                <td>Consistency Score</td>
+                                <td>${document.getElementById('consistencyScore').textContent}</td>
+                                <td>Good</td>
+                            </tr>
+                            <tr>
+                                <td>Step Symmetry</td>
+                                <td>${document.getElementById('symmetryValue').textContent}%</td>
+                                <td>Balanced</td>
+                            </tr>
+                        </table>
+                    </body>
+                </html>
+            `;
+
+            const printWindow = window.open('', '', 'width=800,height=600');
+            printWindow.document.write(printContent);
+            printWindow.document.close();
+            setTimeout(() => printWindow.print(), 250);
+        }
+
+        // ==================== FPS COUNTER ====================
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+
+            if (now - lastFrameTime >= 1000) {
+                fpsCounter = frameCount;
+                frameCount = 0;
+                lastFrameTime = now;
+                document.getElementById('fpsValue').textContent = fpsCounter;
+            }
+        }
+
+        // ==================== STARTUP ====================
+        window.addEventListener('load', () => {
+            initializePoseDetection();
+        });
+    </script>
+</body>
+</html>
